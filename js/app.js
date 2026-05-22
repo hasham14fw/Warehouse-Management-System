@@ -5,6 +5,7 @@ let currentUser = null;
 let currentOperatorName = 'System';
 let currentTab = 'inventory';
 let loadedUsers = [];
+const API_BASE = 'https://warehouse-management-system-1-30et.onrender.com';
 
 // ========== CRYPTOGRAPHY & SECURITY ==========
 async function sha256(message) {
@@ -47,7 +48,7 @@ async function loadUsersCSV() {
 
 async function loadCSVData() {
     try {
-        const response = await fetch('/api/inventory');
+        const response = await fetch(API_BASE + '/api/inventory');
         const items = await response.json();
         return items;
     } catch (e) {
@@ -58,7 +59,7 @@ async function loadCSVData() {
 
 async function loadTransactionsCSV() {
     try {
-        const response = await fetch('/api/transactions');
+        const response = await fetch(API_BASE + '/api/transactions');
         const trans = await response.json();
         return trans;
     } catch (e) {
@@ -230,7 +231,7 @@ async function saveUser(e) {
     }
 
     try {
-        const response = await fetch('/api/users', {
+        const response = await fetch(API_BASE + '/api/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, name, password })
@@ -280,7 +281,7 @@ async function saveItem(e) {
     }
     
     try {
-        await fetch('/api/inventory', {
+        await fetch(API_BASE + '/api/inventory', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itemObj)
@@ -314,7 +315,7 @@ async function deleteItem(id) {
     items = items.filter(i => i.id !== id);
     
     try {
-        await fetch('/api/inventory/' + id, { method: 'DELETE' });
+        await fetch(API_BASE + '/api/inventory/' + id, { method: 'DELETE' });
     } catch (err) {
         console.error('Error deleting item from MongoDB Atlas:', err);
     }
@@ -366,12 +367,12 @@ async function saveStockMovement(e) {
     
     try {
         await Promise.all([
-            fetch('/api/inventory', {
+            fetch(API_BASE + '/api/inventory', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(item)
             }),
-            fetch('/api/transactions', {
+            fetch(API_BASE + '/api/transactions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newTx)
@@ -450,12 +451,12 @@ async function saveMultiStockMovement(e) {
         transactions.push(newTx);
         
         syncPromises.push(
-            fetch('/api/inventory', {
+            fetch(API_BASE + '/api/inventory', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(item)
             }),
-            fetch('/api/transactions', {
+            fetch(API_BASE + '/api/transactions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newTx)
@@ -479,7 +480,7 @@ async function deleteTransaction(id) {
     transactions = transactions.filter(t => t.id !== id);
     
     try {
-        await fetch('/api/transactions/' + id, { method: 'DELETE' });
+        await fetch(API_BASE + '/api/transactions/' + id, { method: 'DELETE' });
     } catch (err) {
         console.error('Error deleting transaction from MongoDB Atlas:', err);
     }
@@ -690,7 +691,7 @@ async function handleLogin(e) {
 async function loginUser(username, password) {
     username = sanitizeInput(username.trim().toLowerCase());
     try {
-        const response = await fetch('/api/auth/login', {
+        const response = await fetch(API_BASE + '/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
