@@ -1,11 +1,14 @@
 // ========== DATA STORE & AUTH STATE ==========
 let items = [];
 let transactions = [];
+let employees = [];
 let currentUser = null;
 let currentOperatorName = 'System';
 let currentTab = 'inventory';
 let loadedUsers = [];
-const API_BASE = 'https://warehouse-management-system-1-30et.onrender.com';
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8080'
+    : 'https://warehouse-management-system-1-30et.onrender.com';
 
 // ========== CRYPTOGRAPHY & SECURITY ==========
 async function sha256(message) {
@@ -36,9 +39,8 @@ function sanitizeInput(str) {
 }
 
 function validatePassword(password) {
-    // Requires min 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special character
-    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    return regex.test(password);
+    // Requires min 4 characters
+    return password && password.length >= 4;
 }
 
 // ========== DATABASE LOADERS ==========
@@ -150,43 +152,114 @@ function renderInventory() {
 
 function renderTransactions() {
     const tbody = document.getElementById('transactionsTableBody');
-    const sorted = [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (!tbody) return;
+
+    // Get filter values from advanced filter panel
+    const itemSearch = document.getElementById('txItemSearch') ? document.getElementById('txItemSearch').value.toLowerCase().trim() : '';
+    const refSearch = document.getElementById('txRefSearch') ? document.getElementById('txRefSearch').value.toLowerCase().trim() : '';
+    const dateSearch = document.getElementById('txDateSearch') ? document.getElementById('txDateSearch').value : '';
+    const operatorSearch = document.getElementById('txOperatorSearch') ? document.getElementById('txOperatorSearch').value : '';
+
+    let filtered = transactions.filter(t => {
+        const item = items.find(i => i.id === t.itemId);
+        const itemName = item ? item.name.toLowerCase() : 'unknown item';
+        const matchesItem = !itemSearch || itemName.includes(itemSearch);
+        
+        const reference = (t.reference || '').toLowerCase();
+        const matchesRef = !refSearch || reference.includes(refSearch);
+        
+        const tDate = new Date(t.date);
+        // Robust timezone-agnostic date matching
+        let matchesDate = true;
+        if (dateSearch) {
+            const filterDate = new Date(dateSearch + 'T00:00:00');
+            matchesDate = tDate.toDateString() === filterDate.toDateString();
+        }
+        
+        const matchesOperator = !operatorSearch || (t.operatorName || 'System') === operatorSearch;
+        
+        return matchesItem && matchesRef && matchesDate && matchesOperator;
+    });
+
+    const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    if (sorted.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="py-8 text-center text-gray-500 italic bg-gray-50/20 rounded-xl">
+                    <div class="flex flex-col items-center justify-center py-4">
+                        <i class="fas fa-exchange-alt text-2xl text-gray-300 mb-2"></i>
+                        <span>No transactions match the selected filters.</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
     tbody.innerHTML = sorted.map(t => {
         const item = items.find(i => i.id === t.itemId);
         const itemName = item ? item.name : 'Unknown Item';
+        const sku = item ? item.sku : '';
         const typeClass = t.type === 'in' ? 'stock-in' : 'stock-out';
         const typeIcon = t.type === 'in' ? 'fa-arrow-down' : 'fa-arrow-up';
         const typeLabel = t.type === 'in' ? 'Stock In' : 'Stock Out';
         const date = new Date(t.date);
-        return '<tr class="table-row border-b border-gray-100">' +
-            '<td class="py-3"><div class="text-gray-800 font-medium">' + date.toLocaleDateString() + '</div><div class="text-xs text-gray-500">' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + '</div></td>' +
-            '<td class="py-3 font-medium text-gray-800">' + itemName + '</td>' +
-            '<td class="py-3"><span class="px-3 py-1 rounded-full text-xs font-medium ' + typeClass + ' inline-flex items-center gap-1"><i class="fas ' + typeIcon + ' text-xs"></i> ' + typeLabel + '</span></td>' +
+        
+        // Prepare row-level printing details
+        const printData = JSON.stringify({
+            type: t.type,
+            date: t.date,
+            ref: t.reference || '',
+            operator: t.operatorName || 'System',
+            itemsList: [{ name: itemName, sku: sku, quantity: t.quantity }],
+            notes: t.notes || ''
+        }).replace(/"/g, '&quot;');
+
+        return '<tr class="table-row border-b border-gray-100 hover:bg-slate-50/40 transition-colors">' +
+            '<td class="py-3"><div class="text-gray-800 font-medium text-xs">' + date.toLocaleDateString() + '</div><div class="text-[10px] text-gray-400">' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + '</div></td>' +
+            '<td class="py-3 font-semibold text-gray-800 text-xs">' + itemName + '</td>' +
+            '<td class="py-3"><span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold ' + typeClass + ' inline-flex items-center gap-1"><i class="fas ' + typeIcon + ' text-[9px]"></i> ' + typeLabel + '</span></td>' +
             '<td class="py-3 text-center font-bold ' + (t.type === 'in' ? 'text-emerald-600' : 'text-red-600') + '">' + (t.type === 'in' ? '+' : '-') + t.quantity + '</td>' +
-            '<td class="py-3 text-gray-600 text-xs font-semibold text-indigo-600">' + sanitizeInput(t.operatorName || 'System') + '</td>' +
-            '<td class="py-3 text-gray-600 text-xs">' + (t.reference || '-') + '</td>' +
-            '<td class="py-3 text-gray-500 text-xs max-w-xs truncate">' + (t.notes || '-') + '</td>' +
-            '<td class="py-3 text-right"><button onclick="deleteTransaction(' + t.id + ')" class="w-8 h-8 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors ml-auto" title="Delete"><i class="fas fa-trash text-xs"></i></button></td></tr>';
+            '<td class="py-3 text-indigo-600 text-xs font-semibold">' + sanitizeInput(t.operatorName || 'System') + '</td>' +
+            '<td class="py-3 text-gray-600 text-xs font-mono">' + (t.reference || '-') + '</td>' +
+            '<td class="py-3 text-gray-500 text-xs max-w-[150px] truncate">' + (t.notes || '-') + '</td>' +
+            '<td class="py-3 text-right">' +
+            '<div class="flex justify-end gap-1.5">' +
+            '<button onclick="printRowTransaction(' + printData + ')" class="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center transition-colors" title="Print Slip"><i class="fas fa-print text-xs"></i></button>' +
+            '<button onclick="deleteTransaction(' + t.id + ')" class="w-7 h-7 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors" title="Delete"><i class="fas fa-trash text-xs"></i></button>' +
+            '</div>' +
+            '</td></tr>';
     }).join('');
+}
+
+function printRowTransaction(printData) {
+    currentPrintData = printData;
+    printThermalSlip();
 }
 
 // ========== TABS & MODALS ==========
 function switchTab(tab) {
     currentTab = tab;
-    ['inventory', 'transactions', 'analytics'].forEach(t => {
+    ['inventory', 'transactions', 'analytics', 'employees'].forEach(t => {
         const btn = document.getElementById('tab-' + t);
         const view = document.getElementById('view-' + t);
         if (t === tab) {
-            btn.classList.add('bg-white', 'text-gray-800', 'shadow-sm');
-            btn.classList.remove('text-gray-600');
-            view.classList.remove('hidden');
+            if (btn) {
+                btn.classList.add('bg-white', 'text-gray-800', 'shadow-sm');
+                btn.classList.remove('text-gray-600');
+            }
+            if (view) view.classList.remove('hidden');
         } else {
-            btn.classList.remove('bg-white', 'text-gray-800', 'shadow-sm');
-            btn.classList.add('text-gray-600');
-            view.classList.add('hidden');
+            if (btn) {
+                btn.classList.remove('bg-white', 'text-gray-800', 'shadow-sm');
+                btn.classList.add('text-gray-600');
+            }
+            if (view) view.classList.add('hidden');
         }
     });
     if (tab === 'analytics') renderAnalytics();
+    if (tab === 'employees') renderEmployees();
 }
 
 function showModal(modalId) {
@@ -201,6 +274,11 @@ function closeModal(modalId) {
         document.getElementById('itemForm').reset();
         document.getElementById('editItemId').value = '';
         document.getElementById('itemModalTitle').textContent = 'Add New Item';
+        const btn = document.querySelector('#itemForm button[type="submit"]');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Save Item';
+        }
         populateCategories();
     } else if (modalId === 'userModal') {
         document.getElementById('userForm').reset();
@@ -226,7 +304,7 @@ async function saveUser(e) {
     }
 
     if (!validatePassword(password)) {
-        showToast('Password is too weak! Require 8+ chars, uppercase, lowercase, number, special char.', 'error');
+        showToast('Password is too weak! Require at least 4 characters.', 'error');
         return;
     }
 
@@ -264,20 +342,27 @@ async function saveItem(e) {
         description: document.getElementById('itemDescription').value
     };
     
+    // Disable submit button to prevent double-click multiple submissions
+    const btn = document.querySelector('#itemForm button[type="submit"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner animate-spin"></i> Saving...';
+    }
+
     let itemObj;
+    let isEdit = false;
     if (id) {
+        isEdit = true;
         const numericId = parseInt(id);
         const index = items.findIndex(i => i.id === numericId);
         if (index !== -1) {
             items[index] = { ...items[index], ...itemData };
             itemObj = items[index];
-            showToast('Item updated successfully', 'success');
         }
     } else {
         const newId = items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
         itemObj = { id: newId, ...itemData };
         items.push(itemObj);
-        showToast('Item added successfully', 'success');
     }
     
     try {
@@ -293,6 +378,13 @@ async function saveItem(e) {
     saveData();
     populateCategories();
     closeModal('itemModal');
+    
+    showSuccessActionModal(
+        isEdit ? 'Item Updated!' : 'Item Added!',
+        'Inventory item database sync complete.',
+        'item',
+        null // No print slip for items
+    );
 }
 
 function editItem(id) {
@@ -333,17 +425,28 @@ function openStockModal(itemId, type) {
     document.getElementById('stockType').value = type;
     document.getElementById('stockItemName').textContent = item.name;
     document.getElementById('stockCurrentQty').textContent = item.quantity;
+    
+    // Auto-generate reference number
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+    document.getElementById('stockReference').value = 'TXN-' + type.toUpperCase() + '-' + randomSuffix;
+
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     document.getElementById('stockDate').value = now.toISOString().slice(0, 16);
+    
     const btn = document.getElementById('stockSubmitBtn');
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Confirm';
+    }
+    
     const title = document.getElementById('stockModalTitle');
     if (type === 'in') {
         title.textContent = 'Stock In (Receive)';
-        btn.className = 'flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200';
+        if (btn) btn.className = 'flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200';
     } else {
         title.textContent = 'Stock Out (Dispatch)';
-        btn.className = 'flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-lg shadow-red-200';
+        if (btn) btn.className = 'flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-lg shadow-red-200';
     }
     showModal('stockModal');
 }
@@ -359,6 +462,14 @@ async function saveStockMovement(e) {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
     if (type === 'out' && quantity > item.quantity) { showToast('Insufficient stock available!', 'error'); return; }
+    
+    // Disable confirm button to prevent double-click multiple submissions
+    const btn = document.getElementById('stockSubmitBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner animate-spin"></i> Saving...';
+    }
+
     if (type === 'in') { item.quantity += quantity; } else { item.quantity -= quantity; }
     const newId = transactions.length > 0 ? Math.max(...transactions.map(t => t.id)) + 1 : 1;
     
@@ -384,23 +495,55 @@ async function saveStockMovement(e) {
     
     saveData();
     closeModal('stockModal');
-    showToast('Stock ' + (type === 'in' ? 'received' : 'dispatched') + ' successfully', 'success');
+    
+    // Prepare receipt data
+    const slipData = {
+        title: 'Stock Movement',
+        type,
+        date: new Date(date).toISOString(),
+        ref: reference,
+        operator: currentOperatorName,
+        itemsList: [{
+            name: item.name,
+            sku: item.sku,
+            quantity
+        }],
+        notes
+    };
+    
+    showSuccessActionModal(
+        type === 'in' ? 'Stock Received!' : 'Stock Dispatched!',
+        'Stock movement recorded successfully.',
+        type,
+        slipData
+    );
 }
 
 // ========== MULTI STOCK IN/OUT ==========
 function showMultiStockModal(type) {
     document.getElementById('multiStockType').value = type;
+    
+    // Auto-generate reference number
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+    document.getElementById('multiStockReference').value = 'TXN-M' + type.toUpperCase() + '-' + randomSuffix;
+
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     document.getElementById('multiStockDate').value = now.toISOString().slice(0, 16);
+    
     const title = document.getElementById('multiStockModalTitle');
     const btn = document.getElementById('multiStockSubmitBtn');
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Confirm All';
+    }
+    
     if (type === 'in') {
         title.textContent = 'Multi Stock In (Receive Multiple Items)';
-        btn.className = 'flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200';
+        if (btn) btn.className = 'flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200';
     } else {
         title.textContent = 'Multi Stock Out (Dispatch Multiple Items)';
-        btn.className = 'flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-lg shadow-red-200';
+        if (btn) btn.className = 'flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-lg shadow-red-200';
     }
     renderMultiStockItemsList();
     showModal('multiStockModal');
@@ -432,17 +575,25 @@ async function saveMultiStockMovement(e) {
     const notes = document.getElementById('multiStockNotes').value;
     const selectedItems = [];
     let maxId = transactions.length > 0 ? Math.max(...transactions.map(t => t.id)) : 0;
+    
     items.forEach(item => {
         const checkbox = document.getElementById('multi-check-' + item.id);
         const qtyInput = document.getElementById('multi-qty-' + item.id);
         const quantity = parseInt(qtyInput.value) || 0;
-        if (checkbox.checked && quantity > 0) {
+        if (checkbox && checkbox.checked && quantity > 0) {
             if (type === 'out' && quantity > item.quantity) { showToast('Insufficient stock for ' + item.name + '!', 'error'); return; }
             selectedItems.push({ item, quantity });
         }
     });
     if (selectedItems.length === 0) { showToast('Please select at least one item and enter quantity', 'error'); return; }
     
+    // Disable submit button to prevent double-click multiple submissions
+    const btn = document.getElementById('multiStockSubmitBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner animate-spin"></i> Saving...';
+    }
+
     const syncPromises = [];
     selectedItems.forEach(({ item, quantity }) => {
         if (type === 'in') { item.quantity += quantity; } else { item.quantity -= quantity; }
@@ -472,7 +623,28 @@ async function saveMultiStockMovement(e) {
     
     saveData();
     closeModal('multiStockModal');
-    showToast(selectedItems.length + ' item(s) ' + (type === 'in' ? 'received' : 'dispatched') + ' successfully', 'success');
+    
+    // Prepare multi-item receipt data
+    const slipData = {
+        title: 'Multi-Item Stock ' + (type === 'in' ? 'In' : 'Out'),
+        type,
+        date: new Date(date).toISOString(),
+        ref: reference,
+        operator: currentOperatorName,
+        itemsList: selectedItems.map(si => ({
+            name: si.item.name,
+            sku: si.item.sku,
+            quantity: si.quantity
+        })),
+        notes
+    };
+    
+    showSuccessActionModal(
+        type === 'in' ? 'Multi-Stock Received!' : 'Multi-Stock Dispatched!',
+        selectedItems.length + ' item movements logged.',
+        type,
+        slipData
+    );
 }
 
 async function deleteTransaction(id) {
@@ -644,47 +816,74 @@ async function handleLogin(e) {
     const u = document.getElementById('loginUsername').value;
     const p = document.getElementById('loginPassword').value;
     
-    const lockEl = document.getElementById('loginLock');
+    const errorMsgEl = document.getElementById('loginErrorMsg');
+    if (errorMsgEl) errorMsgEl.classList.add('hidden');
+
+    const overlayEl = document.getElementById('loginLoadingOverlay');
+    const circleEl = document.getElementById('loadingCircle');
+    const tickEl = document.getElementById('successTick');
+    const loadingTextEl = document.getElementById('loadingText');
+    const loadingSubtextEl = document.getElementById('loadingSubtext');
+
+    if (overlayEl) overlayEl.classList.remove('hidden');
+    if (circleEl) circleEl.classList.remove('hidden');
+    if (tickEl) {
+        tickEl.classList.add('hidden', 'scale-0');
+        tickEl.classList.remove('scale-100');
+    }
+    if (loadingTextEl) loadingTextEl.textContent = 'Verifying Credentials...';
+    if (loadingSubtextEl) loadingSubtextEl.textContent = 'Connecting to isolated security workspace...';
     
-    // Trigger pulse scanline checking state
-    if (lockEl) {
-        lockEl.classList.remove('shake-element', 'unlocking');
-        lockEl.classList.add('checking');
+    // Minimum visual delay for smooth animation feel
+    const startTime = Date.now();
+    const loginResult = await loginUser(u, p);
+    const elapsed = Date.now() - startTime;
+    const minDelay = 1000;
+    if (elapsed < minDelay) {
+        await new Promise(resolve => setTimeout(resolve, minDelay - elapsed));
     }
     
-    // Secure db query simulation delay
-    await new Promise(resolve => setTimeout(resolve, 850));
-    
-    const success = await loginUser(u, p);
-    
-    if (lockEl) {
-        lockEl.classList.remove('checking');
-    }
-    
-    if (success) {
+    if (loginResult.success) {
         document.getElementById('loginPassword').value = '';
         
-        // Trigger high-fidelity shackle unlock swing!
-        if (lockEl) {
-            lockEl.classList.add('unlocking');
+        // Hide spinner, show success checkmark
+        if (circleEl) circleEl.classList.add('hidden');
+        if (tickEl) {
+            tickEl.classList.remove('hidden');
+            // Trigger transition scale up
+            setTimeout(() => {
+                tickEl.classList.remove('scale-0');
+                tickEl.classList.add('scale-100');
+            }, 50);
         }
         
-        // Wait for padlock unlock animation
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (loadingTextEl) loadingTextEl.textContent = 'Access Granted!';
+        if (loadingSubtextEl) loadingSubtextEl.textContent = 'Welcome back, ' + currentOperatorName + '!';
+        
+        // Wait to show checkmark tick before opening index/dashboard page
+        await new Promise(resolve => setTimeout(resolve, 1200));
         
         await initDashboard();
         
-        setTimeout(() => {
-            if (lockEl) lockEl.classList.remove('unlocking');
-        }, 1000);
+        if (overlayEl) overlayEl.classList.add('hidden');
     } else {
-        // Shake padlock on bad credentials
-        if (lockEl) {
-            lockEl.classList.add('shake-element');
+        if (overlayEl) overlayEl.classList.add('hidden');
+        
+        // Display message if credentials are wrong
+        const errorTextEl = document.getElementById('loginErrorText');
+        if (errorTextEl) errorTextEl.textContent = loginResult.message;
+        if (errorMsgEl) errorMsgEl.classList.remove('hidden');
+        
+        // Shake the auth container
+        const cardEl = document.querySelector('.auth-card');
+        if (cardEl) {
+            cardEl.classList.add('shake-element');
             setTimeout(() => {
-                lockEl.classList.remove('shake-element');
+                cardEl.classList.remove('shake-element');
             }, 600);
         }
+        
+        document.getElementById('loginPassword').value = '';
     }
 }
 
@@ -703,15 +902,13 @@ async function loginUser(username, password) {
             currentUser = result.user.username;
             currentOperatorName = result.user.name;
             showToast('Welcome back, ' + result.user.name + '!', 'success');
-            return true;
+            return { success: true, user: result.user };
         } else {
-            showToast(result.message || 'Invalid credentials', 'error');
-            return false;
+            return { success: false, message: result.message || 'Invalid credentials' };
         }
     } catch (e) {
         console.error('Secure login failed:', e);
-        showToast('Server connection failed', 'error');
-        return false;
+        return { success: false, message: 'Server connection failed' };
     }
 }
 
@@ -729,6 +926,20 @@ function handleLogout() {
     showToast('Signed out successfully', 'success');
 }
 
+function populateOperatorDropdown() {
+    const dropdown = document.getElementById('txOperatorSearch');
+    if (!dropdown) return;
+    const ops = [...new Set(transactions.map(t => t.operatorName || 'System'))];
+    if (currentOperatorName && !ops.includes(currentOperatorName)) {
+        ops.push(currentOperatorName);
+    }
+    ops.sort();
+    dropdown.innerHTML = '<option value="">All Operators</option>';
+    ops.forEach(op => {
+        dropdown.innerHTML += '<option value="' + op + '">' + op + '</option>';
+    });
+}
+
 async function initDashboard() {
     currentUser = sessionStorage.getItem('warehouse_session');
     currentOperatorName = sessionStorage.getItem('warehouse_user_name') || 'System';
@@ -737,6 +948,14 @@ async function initDashboard() {
     // Load fresh data directly from MongoDB Atlas database!
     items = await loadCSVData();
     transactions = await loadTransactionsCSV();
+    
+    try {
+        const empResponse = await fetch(API_BASE + '/api/employees');
+        employees = await empResponse.json();
+    } catch (e) {
+        console.error('Failed to load employees from MongoDB Atlas:', e);
+        employees = [];
+    }
 
     // Populate dynamic welcome header!
     document.getElementById('userNameHeader').textContent = currentOperatorName;
@@ -745,12 +964,20 @@ async function initDashboard() {
     document.getElementById('authContainer').classList.add('hidden');
     document.getElementById('dashboardApp').classList.remove('hidden');
 
+    // Default Transactions View search date picker to today's local date
+    const txDateInput = document.getElementById('txDateSearch');
+    if (txDateInput) {
+        txDateInput.value = new Date().toLocaleDateString('en-CA');
+    }
+
     // Render workspace
     populateCategories();
+    populateOperatorDropdown();
     updateStats();
     renderInventory();
     renderTransactions();
     if (currentTab === 'analytics') renderAnalytics();
+    if (currentTab === 'employees') renderEmployees();
 }
 
 // ========== MOBILE HAMBURGER MENU ==========
@@ -791,10 +1018,483 @@ function mobileMenuAction(action) {
         case 'item':
             showModal('itemModal');
             break;
+        case 'employees':
+            switchTab('employees');
+            break;
         case 'logout':
             handleLogout();
             break;
     }
+}
+
+// ========== SUCCESS ACTION MODAL & THERMAL PRINT SYSTEM ==========
+let currentPrintData = null;
+
+function showSuccessActionModal(title, subtitle, type, printData = null) {
+    document.getElementById('successActionTitle').textContent = title;
+    document.getElementById('successActionSubtitle').textContent = subtitle;
+    
+    const overlay = document.getElementById('successActionModal');
+    const tick = document.getElementById('actionSuccessTick');
+    const printSection = document.getElementById('successPrintSection');
+    const doneSection = document.getElementById('successDoneSection');
+    
+    // Hide all first
+    printSection.classList.add('hidden');
+    doneSection.classList.add('hidden');
+    tick.classList.add('scale-0');
+    tick.classList.remove('scale-100');
+    
+    overlay.classList.remove('hidden');
+    
+    // Animate tick
+    setTimeout(() => {
+        tick.classList.remove('scale-0');
+        tick.classList.add('scale-100');
+    }, 50);
+    
+    if (printData) {
+        currentPrintData = printData;
+        renderReceiptSlip(printData);
+        printSection.classList.remove('hidden');
+    } else {
+        currentPrintData = null;
+        doneSection.classList.remove('hidden');
+    }
+}
+
+function closeSuccessActionModal() {
+    document.getElementById('successActionModal').classList.add('hidden');
+    document.getElementById('actionSuccessTick').classList.add('scale-0');
+    document.getElementById('actionSuccessTick').classList.remove('scale-100');
+    currentPrintData = null;
+}
+
+function renderReceiptSlip(txnData) {
+    const { type, date, ref, operator, itemsList, notes } = txnData;
+    
+    let html = `
+        <div style="text-align: center; border-bottom: 1px dashed #ccc; padding-bottom: 8px; margin-bottom: 8px; line-height: 1.3;">
+            <strong style="font-size: 14px; letter-spacing: 0.3px;">New Naeem Book Depot</strong><br/>
+            <span style="font-size: 10px; font-weight: 600; color: #4b5563;">Hasilpur</span><br/>
+            <span style="font-size: 8px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; margin-top: 3px;">Stock Movement Slip</span>
+        </div>
+        <div style="text-align: left; line-height: 1.4; margin-bottom: 8px; font-size: 10px;">
+            <strong>Ref:</strong> ${ref}<br/>
+            <strong>Date:</strong> ${new Date(date).toLocaleString()}<br/>
+            <strong>Operator:</strong> ${operator}<br/>
+            <strong>Type:</strong> <span style="text-transform: uppercase; font-weight: bold; color: ${type === 'in' ? '#059669' : '#dc2626'}">${type === 'in' ? 'STOCK RECEIVE (+)' : 'STOCK DISPATCH (-)'}</span>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; text-align: left; margin-bottom: 8px; font-size: 10px;">
+            <thead>
+                <tr style="border-bottom: 1px dashed #ccc; font-weight: bold;">
+                    <th style="padding: 4px 0;">Item Name [SKU]</th>
+                    <th style="padding: 4px 0; text-align: right;">Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    itemsList.forEach(item => {
+        html += `
+            <tr style="border-bottom: 1px dashed #eee;">
+                <td style="padding: 4px 0;">${item.name}<br/><span style="font-size: 8px; color: #888;">${item.sku || 'No SKU'}</span></td>
+                <td style="padding: 4px 0; text-align: right; font-weight: bold;">${item.quantity}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+            </tbody>
+        </table>
+    `;
+
+    if (notes) {
+        html += `
+            <div style="text-align: left; font-size: 9px; background: rgba(0,0,0,0.02); padding: 6px; border-radius: 4px; margin-bottom: 8px; border: 1px dashed #ddd;">
+                <strong>Notes:</strong> ${notes}
+            </div>
+        `;
+    }
+
+    html += `
+        <div style="text-align: center; border-top: 1px dashed #ccc; padding-top: 8px; font-size: 9px; color: #666;">
+            System Generated Slip
+        </div>
+    `;
+
+    document.getElementById('receiptSlipContent').innerHTML = html;
+}
+
+function printThermalSlip() {
+    if (!currentPrintData) return;
+    const printWindow = window.open('', '_blank', 'width=350,height=600');
+    if (!printWindow) {
+        showToast('Popup blocker prevented printing. Please allow popups.', 'error');
+        return;
+    }
+    
+    const { type, date, ref, operator, itemsList, notes } = currentPrintData;
+    
+    let itemsRows = '';
+    itemsList.forEach(item => {
+        itemsRows += `
+            <tr style="border-bottom: 1px dashed #eee;">
+                <td style="padding: 4px 0;">${item.name}<br/><span style="font-size: 9px; color: #888;">${item.sku || 'No SKU'}</span></td>
+                <td style="padding: 4px 0; text-align: right; font-weight: bold;">${item.quantity}</td>
+            </tr>
+        `;
+    });
+
+    const notesHtml = notes ? `
+        <div style="text-align: left; font-size: 10px; background: #f9f9f9; padding: 6px; border-radius: 4px; margin-bottom: 8px; border: 1px solid #eee;">
+            <strong>Notes:</strong> ${notes}
+        </div>
+    ` : '';
+
+    const content = `
+        <html>
+        <head>
+            <title>Print Receipt</title>
+            <style>
+                @page { size: 58mm auto; margin: 0; }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 12px;
+                    width: 58mm;
+                    margin: 0;
+                    padding: 8px;
+                    box-sizing: border-box;
+                    color: #000;
+                    background: #fff;
+                }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { font-size: 11px; }
+            </style>
+        </head>
+        <body onload="window.print(); window.close();">
+            <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; line-height: 1.3;">
+                <strong style="font-size: 15px; font-family: 'Courier New', Courier, monospace;">New Naeem Book Depot</strong><br/>
+                <span style="font-size: 12px; font-family: 'Courier New', Courier, monospace; font-weight: bold;">Hasilpur</span><br/>
+                <span style="font-size: 9px; font-family: 'Courier New', Courier, monospace; text-transform: uppercase; margin-top: 3px; display: inline-block;">Stock Movement Slip</span>
+            </div>
+            <div style="text-align: left; line-height: 1.4; margin-bottom: 8px; font-size: 11px;">
+                <strong>Ref:</strong> ${ref}<br/>
+                <strong>Date:</strong> ${new Date(date).toLocaleString()}<br/>
+                <strong>Operator:</strong> ${operator}<br/>
+                <strong>Type:</strong> <span style="text-transform: uppercase; font-weight: bold;">${type === 'in' ? 'STOCK RECEIVE (+)' : 'STOCK DISPATCH (-)'}</span>
+            </div>
+            <table style="text-align: left; margin-bottom: 8px;">
+                <thead>
+                    <tr style="border-bottom: 1px dashed #000; font-weight: bold;">
+                        <th style="padding: 4px 0;">Item Name [SKU]</th>
+                        <th style="padding: 4px 0; text-align: right;">Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsRows}
+                </tbody>
+            </table>
+            ${notesHtml}
+            <div style="text-align: center; border-top: 1px dashed #000; padding-top: 8px; font-size: 10px;">
+                System Generated Slip
+            </div>
+        </body>
+        </html>
+    `;
+    
+    printWindow.document.write(content);
+    printWindow.document.close();
+}
+
+// ========== EMPLOYEE MANAGEMENT & TEA SLIPS ==========
+async function saveEmployee(event) {
+    if (event) event.preventDefault();
+    
+    const nameEl = document.getElementById('empName');
+    const mobileEl = document.getElementById('empMobile');
+    const submitBtn = document.getElementById('empSubmitBtn');
+    
+    if (!nameEl || !mobileEl) return;
+    
+    const name = nameEl.value.trim();
+    const mobile = mobileEl.value.trim();
+    
+    if (!name || !mobile) {
+        showToast('Please fill all employee fields!', 'error');
+        return;
+    }
+    
+    // Disable multi-clicks
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Saving...';
+    }
+    
+    try {
+        const response = await fetch(API_BASE + '/api/employees', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, mobile })
+        });
+        
+        const result = await response.json();
+        if (response.ok && result.success) {
+            showToast('Employee profile saved successfully!', 'success');
+            nameEl.value = '';
+            mobileEl.value = '';
+            
+            // Reload employees lists from MongoDB
+            const empResponse = await fetch(API_BASE + '/api/employees');
+            employees = await empResponse.json();
+            
+            renderEmployees();
+        } else {
+            showToast(result.message || 'Error saving employee!', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('Server connection failed!', 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save Employee';
+        }
+    }
+}
+
+async function deleteEmployee(id) {
+    if (!confirm('Are you sure you want to remove this employee?')) return;
+    
+    try {
+        const response = await fetch(API_BASE + '/api/employees/' + id, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showToast('Employee profile deleted.', 'success');
+            employees = employees.filter(emp => emp.id !== id);
+            renderEmployees();
+        } else {
+            showToast('Failed to delete employee.', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('Connection error.', 'error');
+    }
+}
+
+function renderEmployees() {
+    const tbody = document.getElementById('employeesTableBody');
+    const emptyState = document.getElementById('employeesEmptyState');
+    const checklist = document.getElementById('teaEmployeesChecklist');
+    
+    if (!tbody) return;
+    
+    if (employees.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
+    } else {
+        if (emptyState) emptyState.classList.add('hidden');
+        tbody.innerHTML = employees.map(emp => `
+            <tr class="border-b border-gray-100 hover:bg-slate-50/50 transition-colors text-xs">
+                <td class="py-2.5 font-medium text-gray-800">${sanitizeInput(emp.name)}</td>
+                <td class="py-2.5 text-gray-500 font-mono">${sanitizeInput(emp.mobile)}</td>
+                <td class="py-2.5 text-right">
+                    <button onclick="deleteEmployee(${emp.id})" class="w-6 h-6 rounded-md bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors ml-auto" title="Delete">
+                        <i class="fas fa-trash text-[10px]"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    }
+    
+    // Populate checklist checkboxes for printing slips
+    if (checklist) {
+        if (employees.length === 0) {
+            checklist.innerHTML = '<span class="text-xs text-gray-500 italic col-span-2">No employees available. Add employees on the left first.</span>';
+        } else {
+            checklist.innerHTML = employees.map(emp => `
+                <label class="flex items-center gap-2 text-xs text-gray-700 cursor-pointer hover:bg-slate-50 p-1.5 rounded transition-colors">
+                    <input type="checkbox" name="teaSelectEmployee" value="${sanitizeInput(emp.name)}" class="w-3.5 h-3.5 text-indigo-600 rounded">
+                    <span>${sanitizeInput(emp.name)}</span>
+                </label>
+            `).join('');
+        }
+    }
+}
+
+function toggleTeaTarget() {
+    const target = document.querySelector('input[name="teaTarget"]:checked').value;
+    const employeesSec = document.getElementById('teaEmployeesListSection');
+    const guestSec = document.getElementById('teaGuestSection');
+    
+    if (target === 'selected') {
+        if (employeesSec) employeesSec.classList.remove('hidden');
+        if (guestSec) guestSec.classList.add('hidden');
+    } else if (target === 'guest') {
+        if (employeesSec) employeesSec.classList.add('hidden');
+        if (guestSec) guestSec.classList.remove('hidden');
+    } else {
+        if (employeesSec) employeesSec.classList.add('hidden');
+        if (guestSec) guestSec.classList.add('hidden');
+    }
+}
+
+function toggleTeaCustomReason() {
+    const reason = document.getElementById('teaReason').value;
+    const customSec = document.getElementById('teaCustomReasonSection');
+    if (reason === 'Other') {
+        if (customSec) customSec.classList.remove('hidden');
+    } else {
+        if (customSec) customSec.classList.add('hidden');
+    }
+}
+
+function printTeaSlip(event) {
+    if (event) event.preventDefault();
+    
+    const target = document.querySelector('input[name="teaTarget"]:checked').value;
+    const rupeesEl = document.getElementById('teaRupees');
+    const reasonEl = document.getElementById('teaReason');
+    
+    if (!rupeesEl || !reasonEl) return;
+    
+    const rupees = rupeesEl.value;
+    let reason = reasonEl.value;
+    if (reason === 'Other') {
+        const customReasonEl = document.getElementById('teaCustomReason');
+        reason = customReasonEl ? customReasonEl.value.trim() : 'Other Beverage';
+        if (!reason) reason = 'Other Beverage';
+    }
+    
+    let recipientsList = [];
+    if (target === 'all') {
+        if (employees.length === 0) {
+            showToast('No active employees registered to print slips for!', 'error');
+            return;
+        }
+        recipientsList = employees.map(emp => emp.name);
+    } else if (target === 'guest') {
+        const guestNameEl = document.getElementById('teaGuestName');
+        let guestName = guestNameEl ? guestNameEl.value.trim() : 'Guest';
+        if (!guestName) guestName = 'Guest';
+        recipientsList = [guestName];
+    } else {
+        const checkedBoxes = document.querySelectorAll('input[name="teaSelectEmployee"]:checked');
+        if (checkedBoxes.length === 0) {
+            showToast('Please check at least one employee!', 'error');
+            return;
+        }
+        recipientsList = Array.from(checkedBoxes).map(cb => cb.value);
+    }
+    
+    const slipsArray = recipientsList.map(recName => ({
+        recipient: recName,
+        rupees,
+        reason,
+        dateTime: new Date().toLocaleString()
+    }));
+    
+    printThermalTeaSlips(slipsArray);
+}
+
+function printThermalTeaSlips(slipsArray) {
+    const printWindow = window.open('', '_blank', 'width=350,height=600');
+    if (!printWindow) {
+        showToast('Popup blocker prevented printing tea slip. Please allow popups.', 'error');
+        return;
+    }
+    
+    let slipsHtml = '';
+    slipsArray.forEach((data, index) => {
+        slipsHtml += `
+            <div class="slip-page">
+                <div class="title" style="font-size: 14px; font-family: 'Courier New', Courier, monospace; font-weight: bold; text-align: center;">
+                    New Naeem Book Depot
+                </div>
+                <div class="title" style="font-size: 12px; font-family: 'Courier New', Courier, monospace; font-weight: bold; text-align: center;">
+                    Hasilpur
+                </div>
+                <div class="title" style="font-size: 9px; font-family: 'Courier New', Courier, monospace; text-transform: uppercase; margin-top: 2px; text-align: center;">
+                    Beverage / Tea Slip
+                </div>
+                
+                <div class="dotted-line"></div>
+                
+                <div class="field-row">
+                    <strong>Employe:</strong> ${data.recipient}
+                </div>
+                <div class="field-row">
+                    <strong>Amount:</strong> Rs. ${data.rupees}
+                </div>
+                <div class="field-row">
+                    <strong>Reason:</strong> ${data.reason}
+                </div>
+                <div class="field-row">
+                    <strong>Date & Time:</strong><br/>
+                    ${data.dateTime}
+                </div>
+                
+                <div class="dotted-line"></div>
+                
+                <div style="text-align: center; font-size: 9px; font-family: 'Courier New', Courier, monospace; margin-top: 8px;">
+                    Thank You!
+                </div>
+            </div>
+        `;
+    });
+    
+    const content = `
+        <html>
+        <head>
+            <title>Print Tea Slips</title>
+            <style>
+                @page { size: 58mm auto; margin: 0; }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 12px;
+                    width: 58mm;
+                    margin: 0;
+                    padding: 10px;
+                    box-sizing: border-box;
+                    color: #000;
+                    background: #fff;
+                }
+                .dotted-line {
+                    border-bottom: 1px dashed #000;
+                    margin: 8px 0;
+                }
+                .title {
+                    text-align: center;
+                    font-weight: bold;
+                    line-height: 1.3;
+                }
+                .field-row {
+                    margin: 5px 0;
+                    line-height: 1.4;
+                    font-size: 11px;
+                }
+                .slip-page {
+                    page-break-after: always;
+                    break-after: page;
+                    box-sizing: border-box;
+                }
+                .slip-page:last-child {
+                    page-break-after: avoid;
+                    break-after: avoid;
+                }
+            </style>
+        </head>
+        <body onload="window.print(); window.close();">
+            ${slipsHtml}
+        </body>
+        </html>
+    `;
+    
+    printWindow.document.write(content);
+    printWindow.document.close();
+    showToast('Tea slip(s) generated successfully!', 'success');
 }
 
 // ========== INIT ==========

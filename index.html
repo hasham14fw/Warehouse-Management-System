@@ -13,6 +13,22 @@
     <!-- Auth Container Overlay (Visible by default, handles Login & Signup) -->
     <div id="authContainer" class="fixed inset-0 z-50 flex items-center justify-center p-4 auth-bg transition-all duration-500">
         <div class="w-full max-w-md auth-card p-8 slide-in text-white relative">
+            <!-- Loading and Success Overlay -->
+            <div id="loginLoadingOverlay" class="hidden absolute inset-0 bg-[#0f172a]/95 rounded-[24px] flex flex-col items-center justify-center p-8 z-50 text-center transition-all duration-300">
+                <div class="flex flex-col items-center justify-center">
+                    <!-- Spinner -->
+                    <div id="loadingCircle" class="w-16 h-16 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin mb-6"></div>
+                    <!-- Success Tick -->
+                    <div id="successTick" class="hidden w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center mb-6 scale-0 transition-all duration-500">
+                        <svg class="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" stroke-width="4.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    <h3 id="loadingText" class="text-xl font-bold text-white tracking-wide">Verifying Credentials</h3>
+                    <p id="loadingSubtext" class="text-indigo-300 text-sm mt-2">Connecting to isolated security workspace...</p>
+                </div>
+            </div>
+
             <div class="text-center mb-8">
                 <div class="lock-wrapper flex justify-center mb-4">
                     <div id="loginLock" class="lock-container bg-indigo-600/20 border border-white/20 shadow-inner rounded-full p-4 flex items-center justify-center transition-all duration-500 w-20 h-20">
@@ -33,6 +49,11 @@
 
             <!-- Login Form -->
             <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-5">
+                <!-- Error Alert Box -->
+                <div id="loginErrorMsg" class="hidden p-3.5 bg-red-500/20 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center gap-2.5 slide-in">
+                    <i class="fas fa-exclamation-circle text-red-400 text-sm flex-shrink-0"></i>
+                    <span id="loginErrorText" class="font-medium">Invalid username or password</span>
+                </div>
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-indigo-200 mb-1.5">Username</label>
                     <div class="relative">
@@ -95,6 +116,9 @@
                 <button onclick="showModal('itemModal')" class="btn-hover px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2 shadow-lg shadow-indigo-200">
                     <i class="fas fa-plus"></i> New Item
                 </button>
+                <button onclick="switchTab('employees')" class="btn-hover px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 flex items-center gap-2 shadow-lg shadow-amber-200">
+                    <i class="fas fa-users"></i> Employees
+                </button>
                 <button onclick="handleLogout()" class="btn-hover px-4 py-2 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900 flex items-center gap-2 shadow-lg shadow-slate-200">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
@@ -114,6 +138,9 @@
             </button>
             <button onclick="mobileMenuAction('item')" class="px-4 py-3 bg-indigo-55 text-indigo-700 rounded-xl font-semibold hover:bg-indigo-100 flex items-center gap-3 transition-colors text-sm">
                 <i class="fas fa-plus text-indigo-600 w-5"></i> New Item
+            </button>
+            <button onclick="mobileMenuAction('employees')" class="px-4 py-3 bg-amber-50 text-amber-700 rounded-xl font-semibold hover:bg-amber-100 flex items-center gap-3 transition-colors text-sm">
+                <i class="fas fa-users text-amber-600 w-5"></i> Employees
             </button>
             <button onclick="mobileMenuAction('logout')" class="px-4 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-900 flex items-center gap-3 transition-colors text-sm">
                 <i class="fas fa-sign-out-alt text-gray-400 w-5"></i> Logout
@@ -227,6 +254,36 @@
 
             <!-- Transactions View -->
             <div id="view-transactions" class="hidden fade-in">
+                <!-- Advanced Search & Filter Controls -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                    <div class="relative">
+                        <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input type="text" id="txItemSearch" placeholder="Search item name..." 
+                            class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white text-sm"
+                            onkeyup="renderTransactions()">
+                    </div>
+                    <div class="relative">
+                        <i class="fas fa-hashtag absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input type="text" id="txRefSearch" placeholder="Search reference..." 
+                            class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white text-sm"
+                            onkeyup="renderTransactions()">
+                    </div>
+                    <div class="relative">
+                        <i class="fas fa-calendar absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input type="date" id="txDateSearch" 
+                            class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white text-sm"
+                            onchange="renderTransactions()">
+                    </div>
+                    <div class="relative">
+                        <i class="fas fa-user absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <select id="txOperatorSearch" onchange="renderTransactions()" 
+                            class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white text-sm appearance-none">
+                            <option value="">All Operators</option>
+                        </select>
+                        <i class="fas fa-chevron-down absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]"></i>
+                    </div>
+                </div>
+
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
                         <thead>
@@ -264,6 +321,144 @@
                     <h3 class="text-lg font-semibold text-gray-800 mb-4">Top Moving Items</h3>
                     <div id="topItemsList" class="space-y-3">
                         <!-- Dynamic content -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Employees View -->
+            <div id="view-employees" class="hidden fade-in">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <!-- Left: Add Employee & Print slips (7 cols) -->
+                    <div class="lg:col-span-7 space-y-6">
+                        <!-- Print Tea/Beverage Slips -->
+                        <div class="bg-gray-50/50 rounded-xl p-5 border border-gray-100">
+                            <h3 class="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <i class="fas fa-mug-hot text-amber-500"></i> Print Tea / Beverage Slips
+                            </h3>
+                            <form id="teaForm" onsubmit="printTeaSlip(event)" class="space-y-4">
+                                <!-- Target Options -->
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-600 mb-2">Slip Recipient Target</label>
+                                    <div class="flex flex-wrap gap-4 bg-white p-3 rounded-lg border border-gray-200">
+                                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                            <input type="radio" name="teaTarget" value="all" checked onchange="toggleTeaTarget()" class="w-4 h-4 text-indigo-600">
+                                            All Employees
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                            <input type="radio" name="teaTarget" value="selected" onchange="toggleTeaTarget()" class="w-4 h-4 text-indigo-600">
+                                            Selected Employees
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                            <input type="radio" name="teaTarget" value="guest" onchange="toggleTeaTarget()" class="w-4 h-4 text-indigo-600">
+                                            Guest
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Selected Employees list checkboxes -->
+                                <div id="teaEmployeesListSection" class="hidden">
+                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Select Employee(s)</label>
+                                    <div id="teaEmployeesChecklist" class="max-h-40 overflow-y-auto border border-gray-200 bg-white rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <!-- Dynamic checkboxes from JS -->
+                                    </div>
+                                </div>
+
+                                <!-- Guest Name -->
+                                <div id="teaGuestSection" class="hidden">
+                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Guest Name</label>
+                                    <input type="text" id="teaGuestName" placeholder="Enter Guest name" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                                </div>
+
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <!-- Rupees amount -->
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Amount (Rupees)</label>
+                                        <input type="number" id="teaRupees" required min="1" placeholder="Enter amount in Rs." 
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                                    </div>
+
+                                    <!-- Reason -->
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Reason (e.g. Tea / Juice)</label>
+                                        <select id="teaReason" required onchange="toggleTeaCustomReason()" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                                            <option value="Tea">Tea</option>
+                                            <option value="Juice">Juice</option>
+                                            <option value="Coffee">Coffee</option>
+                                            <option value="Biscuits">Biscuits</option>
+                                            <option value="Lunch">Lunch</option>
+                                            <option value="Other">Other (Custom Reason)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Custom Reason Input -->
+                                <div id="teaCustomReasonSection" class="hidden">
+                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Custom Reason</label>
+                                    <input type="text" id="teaCustomReason" placeholder="Enter custom reason" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                                </div>
+
+                                <div class="text-right pt-2">
+                                    <button type="submit" 
+                                        class="w-full py-2.5 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-colors shadow-lg shadow-amber-100 flex items-center justify-center gap-2">
+                                        <i class="fas fa-print"></i> Generate &amp; Print Slip
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Add Employee Form -->
+                        <div class="bg-gray-50/50 rounded-xl p-5 border border-gray-100">
+                            <h3 class="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <i class="fas fa-user-plus text-indigo-500"></i> Add New Employee
+                            </h3>
+                            <form id="employeeForm" onsubmit="saveEmployee(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Employee Name</label>
+                                    <input type="text" id="empName" required placeholder="Enter employee name" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Mobile Number (Unique)</label>
+                                    <input type="text" id="empMobile" required placeholder="Enter unique mobile number" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white">
+                                </div>
+                                <div class="sm:col-span-2 text-right">
+                                    <button type="submit" id="empSubmitBtn" 
+                                        class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100 text-sm">
+                                        Save Employee
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Right: Employees Database Table (5 cols) -->
+                    <div class="lg:col-span-5">
+                        <div class="bg-gray-50/50 rounded-xl p-5 border border-gray-100 h-full min-h-[300px]">
+                            <h3 class="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <i class="fas fa-list-ul text-indigo-500"></i> Active Employees Database
+                            </h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr class="border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wider">
+                                            <th class="pb-2 font-semibold">Employee</th>
+                                            <th class="pb-2 font-semibold">Mobile</th>
+                                            <th class="pb-2 font-semibold text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="employeesTableBody" class="text-xs">
+                                        <!-- Dynamic contents -->
+                                    </tbody>
+                                </table>
+                                <div id="employeesEmptyState" class="hidden text-center py-8">
+                                    <i class="fas fa-users text-2xl text-gray-300 mb-2 block"></i>
+                                    <p class="text-gray-500 italic text-xs">No employees registered yet.</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -493,6 +688,56 @@
     </div>
 </div>
 
+
+    <!-- Unified Success & Action Modal -->
+    <div id="successActionModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="modal-overlay absolute inset-0" onclick="closeSuccessActionModal()"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-4">
+            <div class="bg-white rounded-2xl shadow-2xl p-6 slide-in max-h-[85vh] overflow-y-auto relative">
+                <div class="flex flex-col items-center justify-center text-center">
+                    <!-- Elegant success animated tick circle -->
+                    <div id="actionSuccessTick" class="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-4 transition-transform duration-500 scale-0">
+                        <svg class="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" stroke-width="4.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    <h2 id="successActionTitle" class="text-xl font-bold text-gray-800">Success!</h2>
+                    <p id="successActionSubtitle" class="text-gray-500 text-sm mt-1">Transaction recorded successfully.</p>
+                </div>
+
+                <!-- Print Section (Show only for Stock In/Out) -->
+                <div id="successPrintSection" class="mt-6 border-t border-gray-100 pt-6 hidden">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-semibold text-gray-700">Thermal Slip Preview</h3>
+                        <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">58mm Roll</span>
+                    </div>
+                    
+                    <!-- Paper Slip Render Box -->
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200/60 font-mono text-xs text-gray-800 shadow-inner overflow-x-auto max-h-60 overflow-y-auto">
+                        <div id="receiptSlipContent" class="space-y-1 select-none leading-relaxed text-left">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3 mt-6">
+                        <button onclick="printThermalSlip()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-200 flex items-center justify-center gap-2">
+                            <i class="fas fa-print"></i> Print Slip
+                        </button>
+                        <button onclick="closeSuccessActionModal()" class="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
+                            Back to Home
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Done/Home Button for Add Item -->
+                <div id="successDoneSection" class="mt-6 flex justify-center hidden">
+                    <button onclick="closeSuccessActionModal()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-200">
+                        Back to Home
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Toast Notification -->
     <div id="toast" class="fixed bottom-4 right-4 transform translate-y-20 opacity-0 transition-all duration-300 z-50">

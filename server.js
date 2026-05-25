@@ -41,8 +41,7 @@ function computeHash(password, salt) {
 }
 
 function validatePassword(password) {
-    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    return regex.test(password);
+    return password && password.length >= 4;
 }
 
 // ========== API ENDPOINTS ==========
@@ -86,7 +85,7 @@ app.post('/api/users', async (req, res) => {
         }
 
         if (!validatePassword(password)) {
-            return res.status(400).json({ success: false, message: 'Password is too weak! Must have 8+ characters, uppercase, lowercase, digit, and special symbol.' });
+            return res.status(400).json({ success: false, message: 'Password is too weak! Must have 4+ characters.' });
         }
 
         const normalizedUsername = username.trim().toLowerCase();
@@ -203,6 +202,55 @@ app.delete('/api/transactions/:id', async (req, res) => {
         const id = parseInt(req.params.id);
         await db.collection('transactions').deleteOne({ id });
         res.json({ success: true, message: 'Transaction deleted' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 10. Fetch Employees List
+app.get('/api/employees', async (req, res) => {
+    try {
+        const emps = await db.collection('employes').find().toArray();
+        res.json(emps);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 11. Add or Update Employee (With Mobile Uniqueness Check)
+app.post('/api/employees', async (req, res) => {
+    try {
+        const emp = req.body;
+        delete emp._id;
+        if (!emp.id) {
+            emp.id = Date.now();
+        }
+        if (emp.mobile) {
+            const existing = await db.collection('employes').findOne({ mobile: emp.mobile.trim() });
+            if (existing && existing.id !== emp.id) {
+                return res.status(400).json({ success: false, message: 'Employee with this mobile number already exists!' });
+            }
+        }
+        
+        const existingById = await db.collection('employes').findOne({ id: emp.id });
+        if (existingById) {
+            await db.collection('employes').updateOne({ id: emp.id }, { $set: emp });
+            res.json({ success: true, message: 'Employee updated', employee: emp });
+        } else {
+            await db.collection('employes').insertOne(emp);
+            res.json({ success: true, message: 'Employee inserted', employee: emp });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// 12. Delete Employee Profile
+app.delete('/api/employees/:id', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        await db.collection('employes').deleteOne({ id });
+        res.json({ success: true, message: 'Employee deleted' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
