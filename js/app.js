@@ -103,9 +103,9 @@ function saveData() {
 
 function updateStats() {
     document.getElementById('totalItems').textContent = items.length;
-    const totalUnits = items.reduce((sum, item) => sum + item.quantity, 0);
+    const totalUnits = items.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0);
     document.getElementById('totalStockUnits').textContent = totalUnits.toLocaleString();
-    const lowStock = items.filter(item => item.quantity <= item.minStock).length;
+    const lowStock = items.filter(item => (parseInt(item.quantity) || 0) <= (parseInt(item.minStock) || 0)).length;
     document.getElementById('lowStockCount').textContent = lowStock;
     const today = new Date().toDateString();
     const todayCount = transactions.filter(t => new Date(t.date).toDateString() === today).length;
@@ -113,8 +113,10 @@ function updateStats() {
 }
 
 function getStockStatus(item) {
-    if (item.quantity <= 0) return { class: 'critical-stock', label: 'Out of Stock', color: 'text-red-600 bg-red-50' };
-    if (item.quantity <= item.minStock) return { class: 'low-stock', label: 'Low Stock', color: 'text-amber-600 bg-amber-50' };
+    const qty = parseInt(item.quantity) || 0;
+    const minStock = parseInt(item.minStock) || 0;
+    if (qty <= 0) return { class: 'critical-stock', label: 'Out of Stock', color: 'text-red-600 bg-red-50' };
+    if (qty <= minStock) return { class: 'low-stock', label: 'Low Stock', color: 'text-amber-600 bg-amber-50' };
     return { class: 'healthy-stock', label: 'In Stock', color: 'text-emerald-600 bg-emerald-50' };
 }
 
@@ -483,8 +485,10 @@ async function saveStockMovement(e) {
     const notes = document.getElementById('stockNotes').value;
     const item = items.find(i => i.id === itemId);
     if (!item) return;
+    
+    const currentQty = parseInt(item.quantity) || 0;
     if (quantity <= 0) { showToast('Please enter a valid quantity!', 'error'); return; }
-    if (type === 'out' && quantity > item.quantity) { showToast('Insufficient stock available!', 'error'); return; }
+    if (type === 'out' && quantity > currentQty) { showToast('Insufficient stock available!', 'error'); return; }
     
     isStockSubmitting = true;
 
@@ -496,7 +500,7 @@ async function saveStockMovement(e) {
     }
 
     try {
-        if (type === 'in') { item.quantity += quantity; } else { item.quantity -= quantity; }
+        if (type === 'in') { item.quantity = currentQty + quantity; } else { item.quantity = currentQty - quantity; }
         const newId = transactions.length > 0 ? Math.max(...transactions.map(t => t.id)) + 1 : 1;
         
         const newTx = { id: newId, itemId, type, quantity, date: new Date(date).toISOString(), reference, notes, operatorName: currentOperatorName };
@@ -655,8 +659,9 @@ async function saveMultiStockMovement(e) {
         const checkbox = document.getElementById('multi-check-' + item.id);
         const qtyInput = document.getElementById('multi-qty-' + item.id);
         const quantity = parseInt(qtyInput.value) || 0;
+        const currentQty = parseInt(item.quantity) || 0;
         if (checkbox && checkbox.checked && quantity > 0) {
-            if (type === 'out' && quantity > item.quantity) { 
+            if (type === 'out' && quantity > currentQty) { 
                 showToast('Insufficient stock for ' + item.name + '!', 'error'); 
                 isInsufficient = true;
             }
@@ -677,7 +682,8 @@ async function saveMultiStockMovement(e) {
 
     const syncPromises = [];
     selectedItems.forEach(({ item, quantity }) => {
-        if (type === 'in') { item.quantity += quantity; } else { item.quantity -= quantity; }
+        const currentQty = parseInt(item.quantity) || 0;
+        if (type === 'in') { item.quantity = currentQty + quantity; } else { item.quantity = currentQty - quantity; }
         maxId++;
         const newTx = { id: maxId, itemId: item.id, type, quantity, date: new Date(date).toISOString(), reference, notes, operatorName: currentOperatorName };
         transactions.push(newTx);
