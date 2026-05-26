@@ -132,11 +132,22 @@ app.post('/api/inventory', async (req, res) => {
             item.id = Date.now();
         }
         
-        const existing = await db.collection('inventory').findOne({ id: item.id });
+        // Find existing using both integer and string matches to prevent duplicates due to MongoDB type strictness
+        const existing = await db.collection('inventory').findOne({
+            $or: [
+                { id: item.id },
+                { id: parseInt(item.id) || 0 },
+                { id: String(item.id) }
+            ]
+        });
         if (existing) {
-            await db.collection('inventory').updateOne({ id: item.id }, { $set: item });
+            await db.collection('inventory').updateOne({ id: existing.id }, { $set: item });
             res.json({ success: true, message: 'Item updated', item });
         } else {
+            const numId = parseInt(item.id);
+            if (!isNaN(numId)) {
+                item.id = numId;
+            }
             await db.collection('inventory').insertOne(item);
             res.json({ success: true, message: 'Item inserted', item });
         }
@@ -152,7 +163,12 @@ app.put('/api/inventory/:id', async (req, res) => {
         const updates = req.body;
         delete updates._id;
 
-        await db.collection('inventory').updateOne({ id }, { $set: updates });
+        await db.collection('inventory').updateOne({
+            $or: [
+                { id: id },
+                { id: String(id) }
+            ]
+        }, { $set: updates });
         res.json({ success: true, message: 'Item updated' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -163,7 +179,12 @@ app.put('/api/inventory/:id', async (req, res) => {
 app.delete('/api/inventory/:id', async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        await db.collection('inventory').deleteOne({ id });
+        await db.collection('inventory').deleteOne({
+            $or: [
+                { id: id },
+                { id: String(id) }
+            ]
+        });
         res.json({ success: true, message: 'Item deleted' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -232,11 +253,21 @@ app.post('/api/employees', async (req, res) => {
             }
         }
         
-        const existingById = await db.collection('employes').findOne({ id: emp.id });
+        const existingById = await db.collection('employes').findOne({
+            $or: [
+                { id: emp.id },
+                { id: parseInt(emp.id) || 0 },
+                { id: String(emp.id) }
+            ]
+        });
         if (existingById) {
-            await db.collection('employes').updateOne({ id: emp.id }, { $set: emp });
+            await db.collection('employes').updateOne({ id: existingById.id }, { $set: emp });
             res.json({ success: true, message: 'Employee updated', employee: emp });
         } else {
+            const numId = parseInt(emp.id);
+            if (!isNaN(numId)) {
+                emp.id = numId;
+            }
             await db.collection('employes').insertOne(emp);
             res.json({ success: true, message: 'Employee inserted', employee: emp });
         }
@@ -249,7 +280,12 @@ app.post('/api/employees', async (req, res) => {
 app.delete('/api/employees/:id', async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        await db.collection('employes').deleteOne({ id });
+        await db.collection('employes').deleteOne({
+            $or: [
+                { id: id },
+                { id: String(id) }
+            ]
+        });
         res.json({ success: true, message: 'Employee deleted' });
     } catch (e) {
         res.status(500).json({ error: e.message });
