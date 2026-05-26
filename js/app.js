@@ -6,6 +6,9 @@ let currentUser = null;
 let currentOperatorName = 'System';
 let currentTab = 'inventory';
 let loadedUsers = [];
+let isStockSubmitting = false;
+let isItemSubmitting = false;
+let isEmployeeSubmitting = false;
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:8080'
     : 'https://warehouse-management-system-1-30et.onrender.com';
@@ -332,6 +335,8 @@ async function saveUser(e) {
 // ========== ITEM CRUD ==========
 async function saveItem(e) {
     e.preventDefault();
+    if (isItemSubmitting) return;
+    
     const id = document.getElementById('editItemId').value;
     const itemData = {
         name: document.getElementById('itemName').value,
@@ -341,6 +346,8 @@ async function saveItem(e) {
         minStock: parseInt(document.getElementById('itemMinStock').value) || 0,
         description: document.getElementById('itemDescription').value
     };
+    
+    isItemSubmitting = true;
     
     // Disable submit button to prevent double-click multiple submissions
     const btn = document.querySelector('#itemForm button[type="submit"]');
@@ -371,20 +378,27 @@ async function saveItem(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itemObj)
         });
+        
+        saveData();
+        populateCategories();
+        closeModal('itemModal');
+        
+        showSuccessActionModal(
+            isEdit ? 'Item Updated!' : 'Item Added!',
+            'Inventory item database sync complete.',
+            'item',
+            null // No print slip for items
+        );
     } catch (err) {
         console.error('Error saving item to MongoDB Atlas:', err);
+        showToast('Error saving item', 'error');
+    } finally {
+        isItemSubmitting = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = 'Save Item';
+        }
     }
-    
-    saveData();
-    populateCategories();
-    closeModal('itemModal');
-    
-    showSuccessActionModal(
-        isEdit ? 'Item Updated!' : 'Item Added!',
-        'Inventory item database sync complete.',
-        'item',
-        null // No print slip for items
-    );
 }
 
 function editItem(id) {
@@ -426,6 +440,12 @@ function openStockModal(itemId, type) {
     document.getElementById('stockItemName').textContent = item.name;
     document.getElementById('stockCurrentQty').textContent = item.quantity;
     
+    // Clear quantity and notes to prevent sticking from previous actions
+    const qtyInput = document.getElementById('stockQuantity');
+    if (qtyInput) qtyInput.value = '';
+    const notesInput = document.getElementById('stockNotes');
+    if (notesInput) notesInput.value = '';
+    
     // Auto-generate reference number
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
     document.getElementById('stockReference').value = 'TXN-' + type.toUpperCase() + '-' + randomSuffix;
@@ -453,6 +473,8 @@ function openStockModal(itemId, type) {
 
 async function saveStockMovement(e) {
     e.preventDefault();
+    if (isStockSubmitting) return;
+
     const itemId = parseInt(document.getElementById('stockItemId').value);
     const type = document.getElementById('stockType').value;
     const quantity = parseInt(document.getElementById('stockQuantity').value);
@@ -461,8 +483,11 @@ async function saveStockMovement(e) {
     const notes = document.getElementById('stockNotes').value;
     const item = items.find(i => i.id === itemId);
     if (!item) return;
+    if (quantity <= 0) { showToast('Please enter a valid quantity!', 'error'); return; }
     if (type === 'out' && quantity > item.quantity) { showToast('Insufficient stock available!', 'error'); return; }
     
+    isStockSubmitting = true;
+
     // Disable confirm button to prevent double-click multiple submissions
     const btn = document.getElementById('stockSubmitBtn');
     if (btn) {
@@ -470,13 +495,13 @@ async function saveStockMovement(e) {
         btn.innerHTML = '<i class="fas fa-spinner animate-spin"></i> Saving...';
     }
 
-    if (type === 'in') { item.quantity += quantity; } else { item.quantity -= quantity; }
-    const newId = transactions.length > 0 ? Math.max(...transactions.map(t => t.id)) + 1 : 1;
-    
-    const newTx = { id: newId, itemId, type, quantity, date: new Date(date).toISOString(), reference, notes, operatorName: currentOperatorName };
-    transactions.push(newTx);
-    
     try {
+        if (type === 'in') { item.quantity += quantity; } else { item.quantity -= quantity; }
+        const newId = transactions.length > 0 ? Math.max(...transactions.map(t => t.id)) + 1 : 1;
+        
+        const newTx = { id: newId, itemId, type, quantity, date: new Date(date).toISOString(), reference, notes, operatorName: currentOperatorName };
+        transactions.push(newTx);
+        
         await Promise.all([
             fetch(API_BASE + '/api/inventory', {
                 method: 'POST',
@@ -489,40 +514,51 @@ async function saveStockMovement(e) {
                 body: JSON.stringify(newTx)
             })
         ]);
+        
+        saveData();
+        closeModal('stockModal');
+        
+        // Prepare receipt data
+        const slipData = {
+            title: 'Stock Movement',
+            type,
+            date: new Date(date).toISOString(),
+            ref: reference,
+            operator: currentOperatorName,
+            itemsList: [{
+                name: item.name,
+                sku: item.sku,
+                quantity
+            }],
+            notes
+        };
+        
+        showSuccessActionModal(
+            type === 'in' ? 'Stock Received!' : 'Stock Dispatched!',
+            'Stock movement recorded successfully.',
+            type,
+            slipData
+        );
     } catch (err) {
         console.error('Error logging stock movement to MongoDB Atlas:', err);
+        showToast('Error saving stock movement', 'error');
+    } finally {
+        isStockSubmitting = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Confirm';
+        }
     }
-    
-    saveData();
-    closeModal('stockModal');
-    
-    // Prepare receipt data
-    const slipData = {
-        title: 'Stock Movement',
-        type,
-        date: new Date(date).toISOString(),
-        ref: reference,
-        operator: currentOperatorName,
-        itemsList: [{
-            name: item.name,
-            sku: item.sku,
-            quantity
-        }],
-        notes
-    };
-    
-    showSuccessActionModal(
-        type === 'in' ? 'Stock Received!' : 'Stock Dispatched!',
-        'Stock movement recorded successfully.',
-        type,
-        slipData
-    );
 }
 
 // ========== MULTI STOCK IN/OUT ==========
 function showMultiStockModal(type) {
     document.getElementById('multiStockType').value = type;
     
+    // Clear notes to prevent sticking from previous actions
+    const notesInput = document.getElementById('multiStockNotes');
+    if (notesInput) notesInput.value = '';
+
     // Auto-generate reference number
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
     document.getElementById('multiStockReference').value = 'TXN-M' + type.toUpperCase() + '-' + randomSuffix;
@@ -553,22 +589,60 @@ function renderMultiStockItemsList() {
     const container = document.getElementById('multiStockItemsList');
     if (items.length === 0) { container.innerHTML = '<div class="p-4 text-center text-gray-500">No items available. Add items first.</div>'; return; }
     container.innerHTML = items.map(item =>
-        '<div class="multi-item-row grid grid-cols-12 gap-2 px-4 py-3 border-t border-gray-100 items-center">' +
+        '<div class="multi-item-row grid grid-cols-12 gap-2 px-4 py-3 border-t border-gray-100 items-center cursor-pointer hover:bg-indigo-50/30 transition-colors" onclick="toggleMultiRowCheck(event, ' + item.id + ')">' +
         '<div class="col-span-1"><input type="checkbox" id="multi-check-' + item.id + '" class="multi-item-check w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500" data-id="' + item.id + '"></div>' +
         '<div class="col-span-5"><p class="font-medium text-gray-800 text-sm">' + item.name + '</p><p class="text-xs text-gray-500">' + (item.sku || 'No SKU') + '</p></div>' +
         '<div class="col-span-3 text-center"><span class="font-semibold text-gray-700">' + item.quantity + '</span></div>' +
-        '<div class="col-span-3"><input type="number" id="multi-qty-' + item.id + '" min="0" class="multi-item-qty w-full px-2 py-1 border border-gray-300 rounded text-center text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="0"></div></div>'
+        '<div class="col-span-3"><input type="number" id="multi-qty-' + item.id + '" min="0" oninput="handleMultiQtyInput(' + item.id + ')" class="multi-item-qty w-full px-2 py-1 border border-gray-300 rounded text-center text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="0" autocomplete="off"></div></div>'
     ).join('');
+}
+
+// Handlers for dynamic row selection and auto-checking on quantity input
+function toggleMultiRowCheck(event, itemId) {
+    if (event.target.classList.contains('multi-item-qty') || event.target.classList.contains('multi-item-check')) {
+        return;
+    }
+    const checkbox = document.getElementById('multi-check-' + itemId);
+    if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        if (checkbox.checked) {
+            const qtyInput = document.getElementById('multi-qty-' + itemId);
+            if (qtyInput) {
+                qtyInput.focus();
+                qtyInput.select();
+            }
+        }
+    }
+}
+
+function handleMultiQtyInput(itemId) {
+    const qtyInput = document.getElementById('multi-qty-' + itemId);
+    const checkbox = document.getElementById('multi-check-' + itemId);
+    if (qtyInput && checkbox) {
+        const val = parseInt(qtyInput.value) || 0;
+        checkbox.checked = (val > 0);
+    }
 }
 
 function selectAllItems() {
     const checkboxes = document.querySelectorAll('.multi-item-check');
     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-    checkboxes.forEach(cb => cb.checked = !allChecked);
+    checkboxes.forEach(cb => {
+        cb.checked = !allChecked;
+        if (cb.checked) {
+            const itemId = cb.getAttribute('data-id');
+            const qtyInput = document.getElementById('multi-qty-' + itemId);
+            if (qtyInput && (parseInt(qtyInput.value) || 0) === 0) {
+                qtyInput.value = '';
+            }
+        }
+    });
 }
 
 async function saveMultiStockMovement(e) {
     e.preventDefault();
+    if (isStockSubmitting) return;
+
     const type = document.getElementById('multiStockType').value;
     const date = document.getElementById('multiStockDate').value;
     const reference = document.getElementById('multiStockReference').value;
@@ -576,16 +650,23 @@ async function saveMultiStockMovement(e) {
     const selectedItems = [];
     let maxId = transactions.length > 0 ? Math.max(...transactions.map(t => t.id)) : 0;
     
+    let isInsufficient = false;
     items.forEach(item => {
         const checkbox = document.getElementById('multi-check-' + item.id);
         const qtyInput = document.getElementById('multi-qty-' + item.id);
         const quantity = parseInt(qtyInput.value) || 0;
         if (checkbox && checkbox.checked && quantity > 0) {
-            if (type === 'out' && quantity > item.quantity) { showToast('Insufficient stock for ' + item.name + '!', 'error'); return; }
+            if (type === 'out' && quantity > item.quantity) { 
+                showToast('Insufficient stock for ' + item.name + '!', 'error'); 
+                isInsufficient = true;
+            }
             selectedItems.push({ item, quantity });
         }
     });
+    if (isInsufficient) return;
     if (selectedItems.length === 0) { showToast('Please select at least one item and enter quantity', 'error'); return; }
+    
+    isStockSubmitting = true;
     
     // Disable submit button to prevent double-click multiple submissions
     const btn = document.getElementById('multiStockSubmitBtn');
@@ -617,34 +698,40 @@ async function saveMultiStockMovement(e) {
     
     try {
         await Promise.all(syncPromises);
+        saveData();
+        closeModal('multiStockModal');
+        
+        // Prepare multi-item receipt data
+        const slipData = {
+            title: 'Multi-Item Stock ' + (type === 'in' ? 'In' : 'Out'),
+            type,
+            date: new Date(date).toISOString(),
+            ref: reference,
+            operator: currentOperatorName,
+            itemsList: selectedItems.map(si => ({
+                name: si.item.name,
+                sku: si.item.sku,
+                quantity: si.quantity
+            })),
+            notes
+        };
+        
+        showSuccessActionModal(
+            type === 'in' ? 'Multi-Stock Received!' : 'Multi-Stock Dispatched!',
+            selectedItems.length + ' item movements logged.',
+            type,
+            slipData
+        );
     } catch (err) {
         console.error('Error logging multi stock movement to MongoDB Atlas:', err);
+        showToast('Error saving multi stock movements', 'error');
+    } finally {
+        isStockSubmitting = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Confirm All';
+        }
     }
-    
-    saveData();
-    closeModal('multiStockModal');
-    
-    // Prepare multi-item receipt data
-    const slipData = {
-        title: 'Multi-Item Stock ' + (type === 'in' ? 'In' : 'Out'),
-        type,
-        date: new Date(date).toISOString(),
-        ref: reference,
-        operator: currentOperatorName,
-        itemsList: selectedItems.map(si => ({
-            name: si.item.name,
-            sku: si.item.sku,
-            quantity: si.quantity
-        })),
-        notes
-    };
-    
-    showSuccessActionModal(
-        type === 'in' ? 'Multi-Stock Received!' : 'Multi-Stock Dispatched!',
-        selectedItems.length + ' item movements logged.',
-        type,
-        slipData
-    );
 }
 
 async function deleteTransaction(id) {
@@ -1210,6 +1297,7 @@ function printThermalSlip() {
 // ========== EMPLOYEE MANAGEMENT & TEA SLIPS ==========
 async function saveEmployee(event) {
     if (event) event.preventDefault();
+    if (isEmployeeSubmitting) return;
     
     const nameEl = document.getElementById('empName');
     const mobileEl = document.getElementById('empMobile');
@@ -1224,6 +1312,8 @@ async function saveEmployee(event) {
         showToast('Please fill all employee fields!', 'error');
         return;
     }
+    
+    isEmployeeSubmitting = true;
     
     // Disable multi-clicks
     if (submitBtn) {
@@ -1256,6 +1346,7 @@ async function saveEmployee(event) {
         console.error(e);
         showToast('Server connection failed!', 'error');
     } finally {
+        isEmployeeSubmitting = false;
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.textContent = 'Save Employee';
