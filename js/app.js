@@ -437,16 +437,15 @@ async function deleteItem(id) {
 function openStockModal(itemId, type) {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
+
+    // Reset the form to completely clear browser memory / autocomplete cache
+    const form = document.getElementById('stockForm');
+    if (form) form.reset();
+
     document.getElementById('stockItemId').value = itemId;
     document.getElementById('stockType').value = type;
     document.getElementById('stockItemName').textContent = item.name;
     document.getElementById('stockCurrentQty').textContent = item.quantity;
-    
-    // Clear quantity and notes to prevent sticking from previous actions
-    const qtyInput = document.getElementById('stockQuantity');
-    if (qtyInput) qtyInput.value = '';
-    const notesInput = document.getElementById('stockNotes');
-    if (notesInput) notesInput.value = '';
     
     // Auto-generate reference number
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
@@ -557,19 +556,26 @@ async function saveStockMovement(e) {
 
 // ========== MULTI STOCK IN/OUT ==========
 function showMultiStockModal(type) {
-    document.getElementById('multiStockType').value = type;
-    
-    // Clear notes to prevent sticking from previous actions
-    const notesInput = document.getElementById('multiStockNotes');
-    if (notesInput) notesInput.value = '';
-
-    // Auto-generate reference number
+    // Generate fresh metadata values first
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
-    document.getElementById('multiStockReference').value = 'TXN-M' + type.toUpperCase() + '-' + randomSuffix;
-
+    const reference = 'TXN-M' + type.toUpperCase() + '-' + randomSuffix;
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('multiStockDate').value = now.toISOString().slice(0, 16);
+    const dateStr = now.toISOString().slice(0, 16);
+
+    // Render the items first so all checkbox/input DOM nodes are created
+    renderMultiStockItemsList();
+
+    // Reset the form to completely clear browser memory / autocomplete cache on dynamic elements
+    const form = document.getElementById('multiStockForm');
+    if (form) {
+        form.reset();
+    }
+
+    // Set the metadata values after resetting to ensure they aren't cleared
+    document.getElementById('multiStockType').value = type;
+    document.getElementById('multiStockReference').value = reference;
+    document.getElementById('multiStockDate').value = dateStr;
     
     const title = document.getElementById('multiStockModalTitle');
     const btn = document.getElementById('multiStockSubmitBtn');
@@ -585,7 +591,7 @@ function showMultiStockModal(type) {
         title.textContent = 'Multi Stock Out (Dispatch Multiple Items)';
         if (btn) btn.className = 'flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-lg shadow-red-200';
     }
-    renderMultiStockItemsList();
+    
     showModal('multiStockModal');
 }
 
